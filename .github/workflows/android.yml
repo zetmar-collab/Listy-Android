@@ -18,3 +18,18 @@ jobs:
         run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;35.0.0"'
       - name: Unit tests, lint and APK
         run: ./gradlew --no-daemon --max-workers 2 testDebugUnitTest lintDebug assembleDebug
+      - name: Install emulator image
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "emulator" "system-images;android-35;google_apis;x86_64"'
+      - name: Instrumented tests on Android 15
+        timeout-minutes: 12
+        run: |
+          sudo chmod 666 /dev/kvm
+          echo no | "$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager" create avd -n listy-ci -k 'system-images;android-35;google_apis;x86_64'
+          "$ANDROID_HOME/emulator/emulator" -avd listy-ci -no-window -no-audio -no-snapshot -no-boot-anim -gpu swiftshader_indirect > /tmp/listy-emulator.log 2>&1 &
+          "$ANDROID_HOME/platform-tools/adb" wait-for-device
+          for i in $(seq 1 90); do
+            if [ "$("$ANDROID_HOME/platform-tools/adb" shell getprop sys.boot_completed | tr -d '\r')" = '1' ]; then break; fi
+            sleep 2
+          done
+          test "$("$ANDROID_HOME/platform-tools/adb" shell getprop sys.boot_completed | tr -d '\r')" = '1'
+          ./gradlew --no-daemon --max-workers 2 connectedDebugAndroidTest

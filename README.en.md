@@ -2,11 +2,15 @@
 
 Native Android playlist creator and editor, based on the [Listy Windows project](https://github.com/zetmar-collab/Listy). **English / Polski** · [Polska instrukcja](README.md)
 
-[**Download APK — Android 8.0+**](https://github.com/zetmar-collab/Listy-Android/releases/latest/download/Listy-Android-1.0.0.apk) · [Releases](https://github.com/zetmar-collab/Listy-Android/releases) · [MIT license](LICENSE)
+[**Download APK — Android 8.0+**](https://github.com/zetmar-collab/Listy-Android/releases/latest/download/Listy-Android-1.1.0.apk) · [Releases](https://github.com/zetmar-collab/Listy-Android/releases) · [MIT license](LICENSE)
 
 The APK is development-signed for installation and testing. Download it to your phone and open it with Android's package installer. The release includes a SHA-256 checksum. This repository contains the standalone Android source project.
 
 <img src="docs/images/android-create.png" width="340" alt="Studio playlist for Android, Polish interface. English is also available." />
+
+## New in 1.1.0
+
+Backup restoration, changes before updates, compatibility profiles, saved smart rules, metadata caching, identical-file reports, portable ZIPs and 30-second previews. Generator options are independent of the editor. [Tools guide](docs/TOOLS.en.md).
 
 ## Features
 
@@ -52,11 +56,11 @@ On Windows:
 .\scripts\Build.ps1 -ConnectedTests
 ```
 
-The script copies the development-signed APK and checksum to `dist/1.0.0/`. Android APK signing is separate from Windows MSIX signing. The Android SDK debug key is used for this test build; it is not included in Git. A production distribution requires a dedicated release-signing process.
+The script copies the development-signed APK and checksum to `dist/1.1.0/`. Android APK signing is separate from Windows MSIX signing. The Android SDK debug key is used for this test build; it is not included in Git. A production distribution requires a dedicated release-signing process.
 
-Validation: 21 JVM tests and 8 instrumented tests on an API 37 emulator passed. Instrumented tests use an isolated fake document provider with real disposable files, plus activity tests for language switching and tabs. They do not cover every physical phone, SD card or cloud provider. Android Lint completed with no errors; version/dependency recommendations remain.
+Validation: 33 JVM tests and 20 instrumented tests on an API 37 emulator passed. Instrumented tests use an isolated fake document provider with real disposable files, plus activity tests for language switching and tabs. They do not cover every physical phone, SD card or cloud provider. Android Lint completed with no errors; version/dependency recommendations remain.
 
-GitHub Actions builds the standalone project and runs JVM tests and lint. The published APK is the locally verified binary; GitHub-hosted builds use a separate temporary debug key.
+GitHub Actions builds the standalone project and runs JVM tests, lint and instrumented emulator tests. The published APK is the locally verified binary; GitHub-hosted builds use a separate temporary debug key.
 
 ## Structure
 

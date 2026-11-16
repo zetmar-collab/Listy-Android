@@ -34,4 +34,9 @@ public class PlaylistCodecTest {
     @Test(expected=IllegalArgumentException.class) public void parentTraversalIsNotAFileName(){PlaylistCodec.name("../escape");}
     @Test(expected=IllegalArgumentException.class) public void emptyNameIsRejected(){PlaylistCodec.name(" ");}
     @Test(expected=IllegalArgumentException.class) public void tooLongNameIsRejected(){PlaylistCodec.name("x".repeat(181));}
+ @Test public void locationElementBaseIsResolved() throws Exception {String xml="<playlist xmlns='http://xspf.org/ns/0/'><trackList><track><location xml:base='Other/'>song.mp3</location></track></trackList></playlist>";assertThat(PlaylistCodec.parse(xml,"XSPF").get(0).location).isEqualTo("Other/song.mp3");}
+ @Test public void comparatorHasConsistentEquivalence(){assertThat(PlaylistCodec.NATURAL.compare("1a","01")).isGreaterThan(0);assertThat(PlaylistCodec.NATURAL.compare("01","1b")).isLessThan(0);assertThat(PlaylistCodec.NATURAL.compare("1a","01a")).isEqualTo(0);}
+ @Test(expected=Exception.class) public void wrongXmlRootIsRejected() throws Exception {PlaylistCodec.parse("<wrong/>","XSPF");}
+ @Test(expected=Exception.class) public void deepXmlIsRejected() throws Exception {PlaylistCodec.parse("<a>".repeat(70)+"</a>".repeat(70),"XSPF");}
+ @Test(expected=java.util.concurrent.CancellationException.class) public void parseCancellationIsChecked() throws Exception {PlaylistCodec.parse("track.mp3", "M3U8",new java.util.concurrent.atomic.AtomicBoolean(true));}
 }

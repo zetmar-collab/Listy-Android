@@ -8,6 +8,8 @@ import java.util.*;
 import java.util.regex.*;
 import javax.xml.parsers.*;
 import org.w3c.dom.*;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.CancellationException;
 
 /** Platform-independent playlist formats; storage grants stay in Storage. */
 public final class PlaylistCodec {
@@ -49,32 +51,45 @@ public final class PlaylistCodec {
     }
     private static double duration(String s) { try { double n=Double.parseDouble(s); return Double.isFinite(n)&&n>=0?n:-1; } catch(Exception ex) { return -1; } }
     public static List<Track> parse(String text,String format) throws Exception {
+        return parse(text,format,new AtomicBoolean());
+    }
+    public static List<Track> parse(String text,String format,AtomicBoolean cancel) throws Exception {
         List<Track> tracks=new ArrayList<>(); format=format.toUpperCase(Locale.ROOT);
         if(format.equals("M3U") || format.equals("M3U8")) {
             String title=""; double seconds=-1;
-            for(String raw:text.split("\\r?\\n")) { String line=raw.trim(); if(line.isEmpty()) continue;
+            BufferedReader lines=new BufferedReader(new StringReader(text));String raw;
+            while((raw=lines.readLine())!=null) { if(cancel.get())throw new CancellationException();String line=raw.trim(); if(line.isEmpty()) continue;
                 if(line.startsWith("#EXTINF:")) { int comma=line.indexOf(','); if(comma>0) { seconds=duration(line.substring(8,comma).split(" ")[0]); title=line.substring(comma+1); } }
-                else if(!line.startsWith("#")) { Track t=new Track(line,title); t.duration=seconds; tracks.add(t); title=""; seconds=-1; }
+                else if(!line.startsWith("#")) { if(tracks.size()>=200000)throw new IOException("Too many tracks");Track t=new Track(line,title); t.duration=seconds; tracks.add(t); title=""; seconds=-1; }
             }
         } else if(format.equals("PLS")) {
             TreeMap<Integer,Track> map=new TreeMap<>(); Pattern p=Pattern.compile("(?i)^(File|Title|Length)([0-9]{1,8})=(.*)$");
-            for(String line:text.split("\\r?\\n")) { Matcher m=p.matcher(line.trim()); if(!m.matches()) continue; int i=Integer.parseInt(m.group(2)); if(i<1) continue;
+            BufferedReader lines=new BufferedReader(new StringReader(text));String line;
+            while((line=lines.readLine())!=null) { if(cancel.get())throw new CancellationException();Matcher m=p.matcher(line.trim()); if(!m.matches()) continue; int i=Integer.parseInt(m.group(2)); if(i<1) continue;
+                if(!map.containsKey(i) && map.size()>=200000)throw new IOException("Too many tracks");
                 Track t=map.computeIfAbsent(i,k->new Track()); switch(m.group(1).toLowerCase(Locale.ROOT)) { case "file":t.location=m.group(3);break; case "title":t.title=m.group(3);break; case "length":t.duration=duration(m.group(3));break; default:break; }
             }
             for(Track t:map.values()) if(!t.location.isEmpty()) tracks.add(t);
         } else if(format.equals("XSPF") || format.equals("WPL")) {
             String upper=text.toUpperCase(Locale.ROOT); if(upper.contains("<!DOCTYPE") || upper.contains("<!ENTITY")) throw new IOException("DTD / entities are not allowed");
+            SAXParserFactory sax=SAXParserFactory.newInstance();sax.setNamespaceAware(true);
+            sax.newSAXParser().parse(new org.xml.sax.InputSource(new StringReader(text)),new org.xml.sax.helpers.DefaultHandler(){int depth,nodes,entries;
+                @Override public void startElement(String uri,String local,String q,org.xml.sax.Attributes a) throws org.xml.sax.SAXException {if(cancel.get())throw new CancellationException();if(++depth>64 || ++nodes>1000000 || ((local.equals("track") || local.equals("media")) && ++entries>200000))throw new org.xml.sax.SAXException("XML resource limit");}
+                @Override public void endElement(String u,String l,String q){depth--;}
+            });
             DocumentBuilderFactory f=DocumentBuilderFactory.newInstance(); f.setNamespaceAware(true); f.setExpandEntityReferences(false);
             Document doc=f.newDocumentBuilder().parse(new org.xml.sax.InputSource(new StringReader(text)));
+            if(!doc.getDocumentElement().getLocalName().equals(format.equals("XSPF")?"playlist":"smil") || doc.getElementsByTagNameNS("*",format.equals("XSPF")?"trackList":"seq").getLength()==0)throw new IOException("Invalid playlist XML structure / Niepoprawna struktura XML");
             NodeList elements=doc.getElementsByTagNameNS("*",format.equals("XSPF")?"track":"media");
             if(elements.getLength()==0 && format.equals("WPL")) elements=doc.getElementsByTagName("media");
             if(elements.getLength()>200000) throw new IOException("Too many tracks");
             for(int i=0;i<elements.getLength();i++) {
+                if(cancel.get())throw new CancellationException();
                 Element e=(Element)elements.item(i); Track t=new Track();
                 if(format.equals("WPL")) t.location=e.getAttribute("src");
                 else { t.location=child(e,"location"); t.title=child(e,"title"); t.artist=child(e,"creator"); t.album=child(e,"album"); double d=duration(child(e,"duration")); t.duration=d<0?-1:d/1000; }
                 if(format.equals("XSPF") && !t.location.isEmpty()) {
-                    t.location=withXmlBase(e,t.location);
+                    t.location=withXmlBase((Element)e.getElementsByTagNameNS("*","location").item(0),t.location);
                     // Decode only URI path escapes, leaving content:// and remote locations intact.
                     try { URI u=URI.create(t.location); if(u.getScheme()==null) t.location=u.getPath(); else if(u.getScheme().equals("file")) t.location=u.getPath(); } catch(IllegalArgumentException ignored) { }
                 }
@@ -116,6 +131,6 @@ public final class PlaylistCodec {
             char x=a.charAt(i),y=b.charAt(j);
             if(x>='0' && x<='9' && y>='0' && y<='9') { int si=i,sj=j; while(i<a.length() && Character.isDigit(a.charAt(i))) i++; while(j<b.length() && Character.isDigit(b.charAt(j))) j++; String na=a.substring(si,i).replaceFirst("^0+(?!$)",""),nb=b.substring(sj,j).replaceFirst("^0+(?!$)",""); int c=Integer.compare(na.length(),nb.length()); if(c==0)c=na.compareTo(nb); if(c!=0)return c; }
             else { int c=Character.compare(Character.toLowerCase(x),Character.toLowerCase(y)); if(c!=0)return c; i++; j++; }
-        } return Integer.compare(a.length(),b.length());
+        } return Integer.compare(a.length()-i,b.length()-j);
     };
 }

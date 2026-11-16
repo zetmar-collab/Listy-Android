@@ -38,7 +38,7 @@ public final class Storage {
     public static void check(AtomicBoolean cancel) { if(cancel.get()) throw new CancellationException(); }
     public Entry describe(Uri uri) throws IOException {
         try(Cursor c=resolver.query(uri,new String[]{Document.COLUMN_DISPLAY_NAME,Document.COLUMN_MIME_TYPE,Document.COLUMN_FLAGS},null,null,null)) {
-            if(c==null || !c.moveToFirst()) throw new IOException("Document unavailable / Plik niedostępny");
+            if(c==null || !c.moveToFirst()) throw new IOException("Document unavailable / Plik niedostÄ™pny");
             return new Entry(uri.toString(),c.getString(0),"","","",Document.MIME_TYPE_DIR.equals(c.getString(1)),c.getInt(2));
         }
     }
@@ -47,10 +47,10 @@ public final class Storage {
         List<Entry> result=new ArrayList<>();
         CancellationSignal signal=new CancellationSignal();
         try(Cursor c=resolver.query(query,new String[]{Document.COLUMN_DOCUMENT_ID,Document.COLUMN_DISPLAY_NAME,Document.COLUMN_MIME_TYPE,Document.COLUMN_FLAGS},null,null,null,signal)) {
-            if(c==null) throw new IOException("Folder unavailable / Katalog niedostępny");
+            if(c==null) throw new IOException("Folder unavailable / Katalog niedostÄ™pny");
             while(c.moveToNext()) { check(cancel); String name=c.getString(1); if(name==null)continue;
                 result.add(new Entry(DocumentsContract.buildDocumentUriUsingTree(uri,c.getString(0)).toString(),name,join(parent.path,name),parent.uri,parent.path,Document.MIME_TYPE_DIR.equals(c.getString(2)),c.getInt(3)));
-                if(result.size()>200000) throw new IOException("Too many files / Zbyt wiele plików");
+                if(result.size()>200000) throw new IOException("Too many files / Zbyt wiele plikĂłw");
             }
         }
         result.sort((a,b)->PlaylistCodec.NATURAL.compare(a.name,b.name)); return result;
@@ -58,9 +58,10 @@ public final class Storage {
     public Library scan(String tree,boolean recursive,boolean metadata,AtomicBoolean cancel,Progress progress) throws Exception {
         Uri u=Uri.parse(tree); Uri rootUri=DocumentsContract.buildDocumentUriUsingTree(u,DocumentsContract.getTreeDocumentId(u));
         Library library=new Library(); library.root=describe(rootUri);
+        MetadataCache cache=metadata?new MetadataCache(context):null;StudioStorage extra=new StudioStorage(context);
         ArrayDeque<Entry> queue=new ArrayDeque<>();queue.add(library.root); Set<String> visited=new HashSet<>(); int count=0;
         while(!queue.isEmpty()) { check(cancel); Entry folder=queue.remove(); if(!visited.add(folder.uri)) continue;
-            if(visited.size()>10000) throw new IOException("Too many folders / Zbyt wiele katalogów");
+            if(visited.size()>10000) throw new IOException("Too many folders / Zbyt wiele katalogĂłw");
             library.folders.add(folder);progress.update(folder.path.isEmpty()?folder.name:folder.path);
             List<Entry> list;
             try { list=children(folder,cancel); } catch(CancellationException ex) { throw ex; } catch(Exception ex) {
@@ -70,10 +71,11 @@ public final class Storage {
                 if(e.directory) { if(recursive && e.path.split("/").length<100) queue.add(e); }
                 else if(PlaylistCodec.isPlaylist(e.name)) library.playlists.add(e);
                 else if(PlaylistCodec.AUDIO.contains(PlaylistCodec.ext(e.name))) {
-                    Track t=track(e); if(metadata)readTags(t);library.tracks.add(t);library.byPath.put(t.path,t);library.byLocation.put(t.location,t);library.byLocation.put(t.uri,t);
+                    Track t=track(e); if(cache!=null)cache.read(this,extra,t);if(!t.metadataWarning.isEmpty())library.warnings.add(e.path+": "+t.metadataWarning);library.tracks.add(t);library.byPath.put(t.path,t);library.byLocation.put(t.location,t);library.byLocation.put(t.uri,t);
                 }
             }
         }
+        if(cache!=null){try{cache.save();}catch(IOException ex){library.warnings.add(ex.getMessage());}progress.update("Cache: "+cache.hits+"; read / odczyt: "+cache.reads);}
         return library;
     }
     public Track track(Entry e) { Track t=new Track(localPath(e.uri),PlaylistCodec.stem(e.name)); t.uri=e.uri;t.path=e.path;return t; }
@@ -93,7 +95,7 @@ public final class Storage {
         try { r.setDataSource(context,Uri.parse(t.uri));String title=r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE);if(title!=null && !title.trim().isEmpty())t.title=title;
             String artist=r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST),album=r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM);
             t.artist=artist==null?"":artist;t.album=album==null?"":album;String ms=r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);if(ms!=null)t.duration=Double.parseDouble(ms)/1000;
-        } catch(Exception ignored) { } finally { try { r.release(); } catch(Exception ignored) { } }
+        } catch(Exception ex) {t.metadataWarning=ex.getMessage()==null?ex.toString():ex.getMessage();} finally { try { r.release(); } catch(Exception ignored) { } }
     }
     public byte[] read(String raw) throws IOException {
         try(InputStream in=resolver.openInputStream(Uri.parse(raw)); ByteArrayOutputStream out=new ByteArrayOutputStream()) {
@@ -102,7 +104,7 @@ public final class Storage {
         }
     }
     public void write(String uri,byte[] bytes) throws IOException {
-        try(OutputStream out=resolver.openOutputStream(Uri.parse(uri),"wt")) {if(out==null)throw new IOException("Cannot write file / Nie można zapisać pliku");out.write(bytes);out.flush();}
+        try(OutputStream out=resolver.openOutputStream(Uri.parse(uri),"wt")) {if(out==null)throw new IOException("Cannot write file / Nie moĹĽna zapisaÄ‡ pliku");out.write(bytes);out.flush();}
     }
     public List<Track> resolve(List<Track> tracks,Entry playlist,Library library) {
         String folder=playlist.parentPath;String source=localPath(playlist.uri);int slash=source.lastIndexOf('/');String absoluteParent=slash<0?"":source.substring(0,slash);
@@ -124,7 +126,7 @@ public final class Storage {
     public Entry create(Entry folder,String name,boolean directory) throws IOException {
         PlaylistCodec.name(name);
         Uri u=DocumentsContract.createDocument(resolver,Uri.parse(folder.uri),directory?Document.MIME_TYPE_DIR:"application/octet-stream",name);
-        if(u==null)throw new IOException("Provider refused creation / Brak możliwości zapisu");Entry e=describe(u);e.path=join(folder.path,e.name);e.parentUri=folder.uri;e.parentPath=folder.path;
+        if(u==null)throw new IOException("Provider refused creation / Brak moĹĽliwoĹ›ci zapisu");Entry e=describe(u);e.path=join(folder.path,e.name);e.parentUri=folder.uri;e.parentPath=folder.path;
         if(!e.name.equals(name)) {try{DocumentsContract.deleteDocument(resolver,u);}catch(Exception ignored){}throw new IOException("Name conflict / Konflikt nazwy: "+name);}return e;
     }
     public Entry subfolder(Entry parent,String name,AtomicBoolean cancel) throws IOException {
@@ -132,15 +134,15 @@ public final class Storage {
     }
     public String save(Entry folder,String name,byte[] data,int policy,AtomicBoolean cancel) throws IOException {
         // policy: 0 skip, 1 update with backup, 2 numbered new version.
-        PlaylistCodec.name(name);check(cancel);Entry existing=find(folder,name,cancel);
+        PlaylistCodec.name(name);check(cancel);Map<String,Entry> names=new HashMap<>();for(Entry e:children(folder,cancel))names.put(e.name,e);Entry existing=names.get(name);
         if(existing!=null && existing.directory)throw new IOException("Destination is a folder");
         if(existing!=null && policy==0)return "SKIP "+name;
-        if(existing!=null && policy==2) {String extension=PlaylistCodec.ext(name),base=PlaylistCodec.stem(name);int i=2;do{name=base+" ("+i+++")."+extension;}while(find(folder,name,cancel)!=null);existing=null;}
+        if(existing!=null && policy==2) {String extension=PlaylistCodec.ext(name),base=PlaylistCodec.stem(name);int i=2;do{name=base+" ("+i+++")."+extension;}while(names.containsKey(name));existing=null;}
         if(existing!=null) {
             byte[] original=read(existing.uri);String backupName=existing.name+"."+System.currentTimeMillis()+"-"+UUID.randomUUID().toString().substring(0,8)+".bak";
             Entry backup=create(folder,backupName,false);write(backup.uri,original);check(cancel);
             try{write(existing.uri,data);}catch(IOException ex){try{write(existing.uri,original);}catch(IOException restore){ex.addSuppressed(restore);}throw new IOException("Backup / Kopia: "+backupName+"; "+ex.getMessage(),ex);}
-            return "UPDATE "+name+" → "+backupName;
+            return "UPDATE "+name+" â†’ "+backupName;
         }
         check(cancel);Entry created=create(folder,name,false);
         try{write(created.uri,data);}catch(IOException ex){try{DocumentsContract.deleteDocument(resolver,Uri.parse(created.uri));}catch(Exception ignored){}throw ex;}
@@ -149,11 +151,11 @@ public final class Storage {
     public Entry rename(Entry entry,String base,AtomicBoolean cancel) throws IOException {
         if(!PlaylistCodec.isPlaylist(entry.name))throw new IOException("Not a playlist");String name=PlaylistCodec.name(base)+"."+PlaylistCodec.ext(entry.name);
         if(name.equals(entry.name))return entry;
-        Entry parent=new Entry(entry.parentUri,"",entry.parentPath,"","",true,0);if(find(parent,name,cancel)!=null)throw new IOException("Name already exists / Nazwa już istnieje");
+        Entry parent=new Entry(entry.parentUri,"",entry.parentPath,"","",true,0);if(find(parent,name,cancel)!=null)throw new IOException("Name already exists / Nazwa juĹĽ istnieje");
         Uri uri=DocumentsContract.renameDocument(resolver,Uri.parse(entry.uri),name);if(uri==null)throw new IOException("Rename refused");Entry e=describe(uri);e.path=join(entry.parentPath,e.name);e.parentUri=entry.parentUri;e.parentPath=entry.parentPath;return e;
     }
     public void deletePlaylist(Entry entry) throws IOException {
         if(!PlaylistCodec.isPlaylist(entry.name))throw new IOException("Not a playlist");
-        if(!DocumentsContract.deleteDocument(resolver,Uri.parse(entry.uri)))throw new IOException("Deletion refused / Nie udało się usunąć");
+        if(!DocumentsContract.deleteDocument(resolver,Uri.parse(entry.uri)))throw new IOException("Deletion refused / Nie udaĹ‚o siÄ™ usunÄ…Ä‡");
     }
 }
